@@ -1,2 +1,2 @@
-docling
-streamlit
+# Runtime is the pinned official docling-serve CPU image declared in Dockerfile.
+# This file exists for code tooling only; do not install a second Docling matrix.

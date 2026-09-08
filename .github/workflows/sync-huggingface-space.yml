@@ -1,0 +1,35 @@
+name: Sync Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the public Docker Space when absent
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HF_TOKEN"
+          curl --fail-with-body --silent --show-error \
+            --request POST https://huggingface.co/api/repos/create \
+            --header "Authorization: Bearer $HF_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{"type":"space","name":"docling-converter","organization":"parreao","sdk":"docker","private":false}' \
+            || true
+      - name: Push main to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HF_TOKEN"
+          git remote add huggingface https://huggingface.co/spaces/parreao/docling-converter
+          git -c http.extraHeader="Authorization: Bearer $HF_TOKEN" push huggingface HEAD:main

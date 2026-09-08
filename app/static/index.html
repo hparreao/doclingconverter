@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Docling Converter</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <a class="skip-link" href="#converter">Skip to converter</a>
+    <header class="masthead">
+      <p class="eyebrow">DOCLING · CPU</p>
+      <div><h1 data-i18n="title">Document converter</h1><p data-i18n="subtitle">Upload up to five files and retrieve structured conversion results.</p></div>
+      <a class="external" href="https://huggingface.co/spaces/parreao/docling-converter" target="_blank" rel="noopener" data-i18n="openSpace">Open Space</a>
+    </header>
+    <section class="notice" aria-label="Privacy notice"><strong data-i18n="privacyTitle">Privacy</strong><span data-i18n="privacy">Files are processed on Hugging Face and stored temporarily only while conversion runs. File names and document content are not sent to analytics.</span></section>
+    <div id="api-state" class="status" role="status" aria-live="polite" data-i18n="starting">Starting converter…</div>
+    <section id="converter" aria-labelledby="upload-title">
+      <h2 id="upload-title" data-i18n="uploadTitle">Upload files</h2>
+      <form id="conversion-form" novalidate>
+        <label id="dropzone" class="dropzone" for="files">
+          <input id="files" name="files" type="file" multiple>
+          <span class="drop-title" data-i18n="dropTitle">Drop files here or choose files</span>
+          <span class="drop-help" data-i18n="dropHelp">Maximum 5 files · 25 MB each · 100 pages per document</span>
+        </label>
+        <ul id="file-list" class="file-list" aria-live="polite"></ul>
+        <fieldset id="outputs"><legend data-i18n="outputs">Output formats</legend><p class="muted" data-i18n="loadingOptions">Loading formats supported by this server…</p></fieldset>
+        <fieldset id="options"><legend data-i18n="options">Conversion options</legend></fieldset>
+        <button id="convert" type="submit" disabled data-i18n="convert">Convert files</button>
+      </form>
+    </section>
+    <section id="progress-region" hidden aria-labelledby="progress-title">
+      <h2 id="progress-title" data-i18n="progress">Conversion progress</h2>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <p id="progress-text" class="status" role="status" aria-live="polite"></p>
+    </section>
+    <section id="results" hidden aria-labelledby="results-title">
+      <h2 id="results-title" data-i18n="results">Results</h2>
+      <p id="result-summary" class="status" role="status" aria-live="polite"></p>
+      <div id="downloads" class="downloads"></div>
+    </section>
+  </main>
+</body>
+</html>
