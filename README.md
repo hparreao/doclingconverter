@@ -61,6 +61,11 @@ Then configure these GitHub Actions variables in the repository settings:
 - `AWS_ROLE_ARN` (the `GitHubActionsRoleArn` output)
 - `SITE_ORIGIN` (the same exact HTTPS origin passed to the foundation stack)
 
+The deployment job runs through the `production` GitHub Environment. Its branch
+policy is restricted to `main`, and the AWS role trust policy accepts that
+Environment claim only. This keeps the OIDC role out of pull requests and
+other branches without storing long-lived AWS credentials in GitHub.
+
 Pushing `main` builds `Dockerfile.lambda` for `linux/arm64`, pushes an
 immutable `sha-<commit>` image to ECR, and deploys the service stack. Read the
 `ApiFunctionUrl` stack output and configure the public website with that URL.
