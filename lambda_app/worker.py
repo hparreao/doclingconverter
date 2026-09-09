@@ -12,7 +12,7 @@ import boto3
 from botocore.exceptions import ClientError
 from docling.document_converter import DocumentConverter
 
-from lambda_app.common import ALLOWED_FORMATS, MAX_FILE_BYTES, safe_filename, signature_matches
+from lambda_app.common import ALLOWED_FORMATS, MAX_FILE_BYTES, WORKER_LOCK_KEY, safe_filename, signature_matches
 
 s3 = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
@@ -43,6 +43,18 @@ def _fail(job_id: str) -> None:
         ExpressionAttributeNames={"#status": "status"},
         ExpressionAttributeValues={":failed": "failed", ":finished": int(time.time())},
     )
+
+
+def _release_worker_lock(job_id: str) -> None:
+    try:
+        TABLE.delete_item(
+            Key={"jobId": WORKER_LOCK_KEY},
+            ConditionExpression="activeJobId = :job_id",
+            ExpressionAttributeValues={":job_id": job_id},
+        )
+    except ClientError as error:
+        if error.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
 
 
 def _convert(input_path: Path, filename: str, formats: list[str]) -> dict[str, Any]:
@@ -96,6 +108,7 @@ def handler(event: dict[str, Any], _context: Any) -> None:
         _fail(job_id)
     finally:
         input_path.unlink(missing_ok=True)
+        _release_worker_lock(job_id)
         try:
             s3.delete_object(Bucket=BUCKET, Key=job["inputKey"])
         except ClientError:

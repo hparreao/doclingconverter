@@ -34,9 +34,8 @@ Resources:
         Command:
           - lambda_app.worker.handler
       Role: !Ref WorkerRoleArn
-      MemorySize: 6144
+      MemorySize: 3008
       Timeout: 900
-      ReservedConcurrentExecutions: 1
       EphemeralStorage:
         Size: 5120
       Environment:
@@ -46,8 +45,10 @@ Resources:
       TracingConfig:
         Mode: PassThrough
       Tags:
-        Project: !Ref ProjectName
-        DataRetention: temporary-24-hours
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: DataRetention
+          Value: temporary-24-hours
 
   ApiFunction:
     Type: AWS::Lambda::Function
@@ -65,7 +66,6 @@ Resources:
       Role: !Ref ApiRoleArn
       MemorySize: 512
       Timeout: 20
-      ReservedConcurrentExecutions: 5
       Environment:
         Variables:
           ARTIFACTS_BUCKET: !Ref ArtifactsBucketName
@@ -75,7 +75,8 @@ Resources:
       TracingConfig:
         Mode: PassThrough
       Tags:
-        Project: !Ref ProjectName
+        - Key: Project
+          Value: !Ref ProjectName
 
   ApiFunctionUrl:
     Type: AWS::Lambda::Url
@@ -99,6 +100,14 @@ Resources:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Ref ApiFunction
       FunctionUrlAuthType: NONE
+      Principal: '*'
+
+  PublicFunctionInvokeViaUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiFunction
+      InvokedViaFunctionUrl: true
       Principal: '*'
 
 Outputs:

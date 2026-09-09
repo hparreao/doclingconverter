@@ -20,7 +20,12 @@ contract.
 
 In AWS, the browser receives a short-lived S3 upload policy, uploads directly
 to a private bucket, submits the job, then polls a Lambda Function URL for a
-short-lived result URL. A single ARM64 worker converts one file at a time.
+short-lived result URL. A conditional DynamoDB lock serializes conversions,
+so one x86_64 worker job is accepted at a time even in AWS accounts whose
+regional concurrency quota cannot support reserved concurrency.
+The worker uses 3008 MB, which is the compatible ceiling for restricted
+accounts; supported file size stays at 25 MB to keep this execution envelope
+practical.
 Source files are deleted immediately after processing; S3 lifecycle rules and
 DynamoDB TTL remove any remaining result objects and job state after one day.
 
@@ -35,8 +40,8 @@ The repository contains two CloudFormation templates:
 - `infrastructure/foundation.yaml` creates the private artifacts bucket,
   DynamoDB job table, ECR repository, Lambda execution roles, and a GitHub
   Actions OIDC role scoped to this repository's `main` branch.
-- `infrastructure/service.yaml` creates the API Function URL and the single
-  concurrency conversion worker after an immutable ARM64 image exists in ECR.
+- `infrastructure/service.yaml` creates the API Function URL and the x86_64
+  conversion worker after an immutable image exists in ECR.
 
 Bootstrap the foundation once from an authenticated AWS CLI. Values stay in
 your terminal or GitHub Actions configuration; do not put account IDs, role
@@ -65,6 +70,9 @@ The deployment job runs through the `production` GitHub Environment. Its branch
 policy is restricted to `main`, and the AWS role trust policy accepts that
 Environment claim only. This keeps the OIDC role out of pull requests and
 other branches without storing long-lived AWS credentials in GitHub.
+The public Function URL uses the two resource-policy statements required by
+AWS for URLs created after October 2025; direct Lambda invocation remains
+disallowed by the URL-only condition.
 
 Pushing `main` builds `Dockerfile.lambda` for `linux/amd64`, pushes an
 immutable `sha-<commit>` image to ECR, and deploys the service stack. Read the

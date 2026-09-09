@@ -33,12 +33,17 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("except Exception:", source)
         self.assertNotIn("str(error)", source)
 
-    def test_service_has_bounded_x86_worker(self):
+    def test_service_has_serialized_x86_worker(self):
         template = SERVICE.read_text(encoding="utf-8")
         self.assertIn("- x86_64", template)
-        self.assertIn("ReservedConcurrentExecutions: 1", template)
         self.assertIn("Timeout: 900", template)
-        self.assertIn("MemorySize: 6144", template)
+        self.assertIn("MemorySize: 3008", template)
+        self.assertIn("InvokedViaFunctionUrl: true", template)
+        api = (ROOT / "lambda_app" / "api.py").read_text(encoding="utf-8")
+        worker = (ROOT / "lambda_app" / "worker.py").read_text(encoding="utf-8")
+        self.assertIn("WORKER_LOCK_KEY", api)
+        self.assertIn("ConditionExpression=\"attribute_not_exists(jobId) OR expiresAt < :now\"", api)
+        self.assertIn("_release_worker_lock(job_id)", worker)
 
     def test_public_source_does_not_embed_aws_credentials(self):
         prohibited = ("AKIA", "ASIA", "aws_secret_access_key", "aws_access_key_id")

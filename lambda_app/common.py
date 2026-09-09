@@ -13,6 +13,8 @@ MAX_FILES_PER_JOB = 1
 MAX_JOBS_PER_IP_PER_DAY = 5
 MAX_JOBS_PER_MONTH = 500
 RESULT_TTL_SECONDS = 24 * 60 * 60
+WORKER_LOCK_KEY = "control#worker-lock"
+WORKER_LOCK_TTL_SECONDS = 16 * 60
 ALLOWED_FORMATS = {"md", "json"}
 ALLOWED_EXTENSIONS = {
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",

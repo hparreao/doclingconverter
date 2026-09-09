@@ -17,6 +17,8 @@ from lambda_app.common import (
     MAX_JOBS_PER_IP_PER_DAY,
     MAX_JOBS_PER_MONTH,
     RESULT_TTL_SECONDS,
+    WORKER_LOCK_KEY,
+    WORKER_LOCK_TTL_SECONDS,
     is_site_origin,
     job_id_from_path,
     parse_json_body,
@@ -112,6 +114,20 @@ def _submit_job(event: dict[str, Any], job_id: str) -> dict[str, Any]:
     except ClientError:
         return response(422, {"detail": "Upload the selected file before submitting it."}, SITE_ORIGIN)
     try:
+        TABLE.put_item(
+            Item={
+                "jobId": WORKER_LOCK_KEY,
+                "activeJobId": job_id,
+                "expiresAt": int(time.time()) + WORKER_LOCK_TTL_SECONDS,
+            },
+            ConditionExpression="attribute_not_exists(jobId) OR expiresAt < :now",
+            ExpressionAttributeValues={":now": int(time.time())},
+        )
+    except ClientError as error:
+        if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return response(429, {"detail": "Another conversion is running. Retry this upload shortly."}, SITE_ORIGIN)
+        raise
+    try:
         TABLE.update_item(
             Key={"jobId": job_id},
             UpdateExpression="SET #status = :submitted",
@@ -120,11 +136,35 @@ def _submit_job(event: dict[str, Any], job_id: str) -> dict[str, Any]:
             ExpressionAttributeValues={":submitted": "submitted", ":created": "created"},
         )
     except ClientError as error:
+        _release_worker_lock(job_id)
         if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return response(409, {"detail": "This upload was already submitted."}, SITE_ORIGIN)
         raise
-    lambda_client.invoke(FunctionName=WORKER_FUNCTION, InvocationType="Event", Payload=f'{{"jobId":"{job_id}"}}'.encode())
+    try:
+        lambda_client.invoke(FunctionName=WORKER_FUNCTION, InvocationType="Event", Payload=f'{{"jobId":"{job_id}"}}'.encode())
+    except ClientError:
+        TABLE.update_item(
+            Key={"jobId": job_id},
+            UpdateExpression="SET #status = :created",
+            ConditionExpression="#status = :submitted",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={":created": "created", ":submitted": "submitted"},
+        )
+        _release_worker_lock(job_id)
+        return response(503, {"detail": "The converter is temporarily unavailable. Retry shortly."}, SITE_ORIGIN)
     return response(202, {"jobId": job_id, "status": "submitted"}, SITE_ORIGIN)
+
+
+def _release_worker_lock(job_id: str) -> None:
+    try:
+        TABLE.delete_item(
+            Key={"jobId": WORKER_LOCK_KEY},
+            ConditionExpression="activeJobId = :job_id",
+            ExpressionAttributeValues={":job_id": job_id},
+        )
+    except ClientError as error:
+        if error.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
 
 
 def _read_job(job_id: str) -> dict[str, Any]:
