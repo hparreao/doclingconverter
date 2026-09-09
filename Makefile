@@ -5,7 +5,7 @@ build:
 	docker build --tag docling-converter:local .
 
 build-lambda:
-	docker build --platform linux/arm64 --file Dockerfile.lambda --tag docling-converter:lambda-local .
+	docker build --platform linux/amd64 --file Dockerfile.lambda --tag docling-converter:lambda-local .
 
 run:
 	docker run --rm --publish 7860:7860 docling-converter:local

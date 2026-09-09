@@ -33,9 +33,9 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("except Exception:", source)
         self.assertNotIn("str(error)", source)
 
-    def test_service_has_bounded_arm_worker(self):
+    def test_service_has_bounded_x86_worker(self):
         template = SERVICE.read_text(encoding="utf-8")
-        self.assertIn("- arm64", template)
+        self.assertIn("- x86_64", template)
         self.assertIn("ReservedConcurrentExecutions: 1", template)
         self.assertIn("Timeout: 900", template)
         self.assertIn("MemorySize: 6144", template)

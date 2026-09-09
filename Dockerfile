@@ -6,10 +6,10 @@ USER root
 
 # LibreOffice is required by Docling for legacy Office files. format-iwork is
 # installed against the Docling version already validated by docling-serve.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN dnf install -y --best --nodocs --setopt=install_weak_deps=False \
       libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress \
-    && rm -rf /var/lib/apt/lists/* \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf \
     && pip install --no-cache-dir 'docling-slim[format-iwork]==2.124.0'
 
 WORKDIR /app

@@ -27,7 +27,7 @@ Resources:
       Description: Single-concurrency temporary Docling conversion worker.
       PackageType: Image
       Architectures:
-        - arm64
+        - x86_64
       Code:
         ImageUri: !Ref ImageUri
       ImageConfig:
@@ -56,7 +56,7 @@ Resources:
       Description: Upload URL and status API for the Docling conversion worker.
       PackageType: Image
       Architectures:
-        - arm64
+        - x86_64
       Code:
         ImageUri: !Ref ImageUri
       ImageConfig:

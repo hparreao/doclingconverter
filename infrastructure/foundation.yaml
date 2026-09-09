@@ -39,6 +39,7 @@ Resources:
           - AllowedHeaders:
               - content-type
             AllowedMethods:
+              - GET
               - POST
             AllowedOrigins:
               - !Ref SiteOrigin

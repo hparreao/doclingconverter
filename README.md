@@ -66,7 +66,7 @@ policy is restricted to `main`, and the AWS role trust policy accepts that
 Environment claim only. This keeps the OIDC role out of pull requests and
 other branches without storing long-lived AWS credentials in GitHub.
 
-Pushing `main` builds `Dockerfile.lambda` for `linux/arm64`, pushes an
+Pushing `main` builds `Dockerfile.lambda` for `linux/amd64`, pushes an
 immutable `sha-<commit>` image to ECR, and deploys the service stack. Read the
 `ApiFunctionUrl` stack output and configure the public website with that URL.
 
@@ -123,8 +123,7 @@ Run the static guardrail checks with `make test`. Exercise the OpenAPI contract
 and conversion fixtures only against a built container; do not use personal or
 confidential documents as fixtures.
 
-Build the Lambda image locally only when Docker is installed and configured for
-multi-architecture builds:
+Build the Lambda image locally only when Docker is installed:
 
 ```bash
 make build-lambda

@@ -53,7 +53,7 @@ jobs:
           IMAGE_TAG="sha-${GITHUB_SHA}"
           IMAGE_URI="${REGISTRY}/${PROJECT_NAME}-lambda:${IMAGE_TAG}"
           aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
-          docker buildx build --platform linux/arm64 --push --file Dockerfile.lambda --tag "$IMAGE_URI" .
+          docker buildx build --platform linux/amd64 --push --file Dockerfile.lambda --tag "$IMAGE_URI" .
           echo "uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Lambda functions
