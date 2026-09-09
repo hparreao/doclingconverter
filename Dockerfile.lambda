@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+# AWS Lambda image: same official Docling CPU runtime, with only the Lambda RIC added.
+FROM quay.io/docling-project/docling-serve-cpu:v1.32.0@sha256:56f12f30f672272a557beb191be6855ba76478e91bac94e8cdedd52d2c8d9da2
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir \
+      'docling-slim[format-iwork]==2.124.0' \
+      awslambdaric \
+      boto3
+
+WORKDIR /var/task
+COPY lambda_app /var/task/lambda_app
+
+ENV DOCLING_DEVICE=cpu \
+    DOCLING_SERVE_ENABLE_REMOTE_SERVICES=false \
+    DOCLING_SERVE_ALLOW_EXTERNAL_PLUGINS=false \
+    DOCLING_SERVE_LOG_LEVEL=WARNING
+
+ENTRYPOINT ["python", "-m", "awslambdaric"]
+CMD ["lambda_app.api.handler"]

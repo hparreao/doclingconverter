@@ -1,0 +1,81 @@
+name: Deploy AWS Lambda converter
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: docling-converter-aws-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      SITE_ORIGIN: ${{ vars.SITE_ORIGIN }}
+      PROJECT_NAME: docling-converter
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?Set the AWS_REGION Actions variable.}"
+          : "${AWS_ROLE_ARN:?Set the AWS_ROLE_ARN Actions variable.}"
+          : "${SITE_ORIGIN:?Set the SITE_ORIGIN Actions variable.}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up multi-architecture Docker build
+        uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and publish immutable Lambda image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE_TAG="sha-${GITHUB_SHA}"
+          IMAGE_URI="${REGISTRY}/${PROJECT_NAME}-lambda:${IMAGE_TAG}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+          docker buildx build --platform linux/arm64 --push --file Dockerfile.lambda --tag "$IMAGE_URI" .
+          echo "uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Lambda functions
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: |
+          set -euo pipefail
+          FOUNDATION_STACK="${PROJECT_NAME}-foundation"
+          output() {
+            aws cloudformation describe-stacks --stack-name "$FOUNDATION_STACK" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" --output text
+          }
+          aws cloudformation deploy \
+            --stack-name "${PROJECT_NAME}-service" \
+            --template-file infrastructure/service.yaml \
+            --parameter-overrides \
+              ProjectName="$PROJECT_NAME" \
+              ImageUri="$IMAGE_URI" \
+              ArtifactsBucketName="$(output ArtifactsBucketName)" \
+              JobsTableName="$(output JobsTableName)" \
+              SiteOrigin="$SITE_ORIGIN" \
+              ApiRoleArn="$(output ApiRoleArn)" \
+              WorkerRoleArn="$(output WorkerRoleArn)" \
+            --no-fail-on-empty-changeset

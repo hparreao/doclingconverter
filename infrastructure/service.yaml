@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda functions and public Function URL for the Docling Converter.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: docling-converter
+  ImageUri:
+    Type: String
+    Description: Immutable ECR image URI built by the GitHub Actions deployment workflow.
+  ArtifactsBucketName:
+    Type: String
+  JobsTableName:
+    Type: String
+  SiteOrigin:
+    Type: String
+  ApiRoleArn:
+    Type: String
+  WorkerRoleArn:
+    Type: String
+
+Resources:
+  WorkerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-worker'
+      Description: Single-concurrency temporary Docling conversion worker.
+      PackageType: Image
+      Architectures:
+        - arm64
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - lambda_app.worker.handler
+      Role: !Ref WorkerRoleArn
+      MemorySize: 6144
+      Timeout: 900
+      ReservedConcurrentExecutions: 1
+      EphemeralStorage:
+        Size: 5120
+      Environment:
+        Variables:
+          ARTIFACTS_BUCKET: !Ref ArtifactsBucketName
+          JOBS_TABLE: !Ref JobsTableName
+      TracingConfig:
+        Mode: PassThrough
+      Tags:
+        Project: !Ref ProjectName
+        DataRetention: temporary-24-hours
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-api'
+      Description: Upload URL and status API for the Docling conversion worker.
+      PackageType: Image
+      Architectures:
+        - arm64
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - lambda_app.api.handler
+      Role: !Ref ApiRoleArn
+      MemorySize: 512
+      Timeout: 20
+      ReservedConcurrentExecutions: 5
+      Environment:
+        Variables:
+          ARTIFACTS_BUCKET: !Ref ArtifactsBucketName
+          JOBS_TABLE: !Ref JobsTableName
+          SITE_ORIGIN: !Ref SiteOrigin
+          WORKER_FUNCTION: !Ref WorkerFunction
+      TracingConfig:
+        Mode: PassThrough
+      Tags:
+        Project: !Ref ProjectName
+
+  ApiFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt ApiFunction.Arn
+      Cors:
+        AllowCredentials: false
+        AllowHeaders:
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+        AllowOrigins:
+          - !Ref SiteOrigin
+        MaxAge: 300
+
+  PublicFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref ApiFunction
+      FunctionUrlAuthType: NONE
+      Principal: '*'
+
+Outputs:
+  ApiFunctionUrl:
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  ApiFunctionName:
+    Value: !Ref ApiFunction
+  WorkerFunctionName:
+    Value: !Ref WorkerFunction
