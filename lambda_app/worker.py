@@ -10,7 +10,6 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
-from docling.document_converter import DocumentConverter
 
 from lambda_app.common import ALLOWED_FORMATS, MAX_FILE_BYTES, WORKER_LOCK_KEY, safe_filename, signature_matches
 
@@ -58,6 +57,10 @@ def _release_worker_lock(job_id: str) -> None:
 
 
 def _convert(input_path: Path, filename: str, formats: list[str]) -> dict[str, Any]:
+    # Importing Docling at module initialization exceeds Lambda's short init
+    # window for this large CPU image. Pay the import cost only for an accepted job.
+    from docling.document_converter import DocumentConverter
+
     extension = input_path.suffix.lower()
     if not safe_filename(filename):
         raise ValueError("invalid filename")

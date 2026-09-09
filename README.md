@@ -26,6 +26,9 @@ regional concurrency quota cannot support reserved concurrency.
 The worker uses 3008 MB, which is the compatible ceiling for restricted
 accounts; supported file size stays at 25 MB to keep this execution envelope
 practical.
+To stay within Lambda's initialization window, the worker imports Docling only
+after a job has passed validation; the cold-start cost is paid by the accepted
+conversion, rather than by every API request.
 Source files are deleted immediately after processing; S3 lifecycle rules and
 DynamoDB TTL remove any remaining result objects and job state after one day.
 

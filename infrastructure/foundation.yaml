@@ -207,6 +207,7 @@ Resources:
                   - cloudformation:DescribeChangeSet
                   - cloudformation:DescribeStacks
                   - cloudformation:ExecuteChangeSet
+                  - cloudformation:GetTemplateSummary
                   - cloudformation:ListStackResources
                 Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}-service/*'
               - Effect: Allow
