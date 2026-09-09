@@ -198,6 +198,9 @@ Resources:
                   - cloudformation:ListStackResources
                 Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}-service/*'
               - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}-foundation/*'
+              - Effect: Allow
                 Action:
                   - lambda:CreateFunction
                   - lambda:CreateFunctionUrlConfig
@@ -211,6 +214,8 @@ Resources:
                   - lambda:DeleteFunctionConcurrency
                   - lambda:AddPermission
                   - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
                 Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-*'
               - Effect: Allow
                 Action: iam:PassRole
