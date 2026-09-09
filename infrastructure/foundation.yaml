@@ -90,6 +90,16 @@ Resources:
       ImageScanningConfiguration:
         ScanOnPush: true
       ImageTagMutability: IMMUTABLE
+      RepositoryPolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaImageRetrieval
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
       Tags:
         - Key: Project
           Value: !Ref ProjectName
