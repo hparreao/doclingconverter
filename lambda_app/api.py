@@ -21,6 +21,7 @@ from lambda_app.common import (
     MAX_JOBS_PER_IP_PER_DAY,
     MAX_JOBS_PER_MONTH,
     RESULT_TTL_SECONDS,
+    UPLOAD_URL_TTL_SECONDS,
     WORKER_LOCK_KEY,
     WORKER_LOCK_TTL_SECONDS,
     is_site_origin,
@@ -152,7 +153,7 @@ def _create_job(event: dict[str, Any]) -> dict[str, Any]:
         Key=input_key,
         Fields={"Content-Type": content_type},
         Conditions=[{"Content-Type": content_type}, ["content-length-range", 1, MAX_FILE_BYTES]],
-        ExpiresIn=300,
+        ExpiresIn=UPLOAD_URL_TTL_SECONDS,
     )
     return response(201, {"jobId": job_id, "upload": upload, "expiresAt": expires_at}, SITE_ORIGIN)
 
