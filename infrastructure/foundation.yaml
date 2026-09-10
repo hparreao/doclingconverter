@@ -219,6 +219,7 @@ Resources:
                 Action:
                   - lambda:CreateFunction
                   - lambda:CreateFunctionUrlConfig
+                  - lambda:UpdateFunctionUrlConfig
                   - lambda:DeleteFunctionUrlConfig
                   - lambda:DeleteFunction
                   - lambda:GetFunction

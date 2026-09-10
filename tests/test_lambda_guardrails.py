@@ -63,6 +63,7 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("severity: HIGH,CRITICAL", workflow)
         self.assertIn("exit-code: '1'", workflow)
         self.assertIn("ecr:GetDownloadUrlForLayer", foundation)
+        self.assertIn("lambda:UpdateFunctionUrlConfig", foundation)
 
     def test_lambda_image_excludes_the_unused_server_runtime(self):
         dockerfile = (ROOT / "Dockerfile.lambda").read_text(encoding="utf-8")
