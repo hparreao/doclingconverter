@@ -82,11 +82,13 @@ immutable `sha-<commit>` image to ECR, and deploys the service stack. Read the
 `ApiFunctionUrl` stack output and configure the public website with that URL.
 
 The service has cost guardrails: one conversion worker, five jobs per IP per
-day, a global 500-job monthly admission limit, one 25 MB file per job, and a
-15-minute Lambda timeout. These controls make low-volume use compatible with
-the Lambda monthly free allocation; they are not a guarantee that AWS will
-never bill an account. Enable Free Tier usage alerts and a zero-spend budget
-before public traffic.
+day, a global 100-job monthly admission limit, one 25 MB file per job, and a
+15-minute Lambda timeout. At 3008 MB, 100 full 15-minute worker executions
+consume about 264,000 GB-seconds, below Lambda's 400,000 GB-second monthly
+free allocation. S3, ECR, CloudWatch, transfer, account eligibility, and
+provider pricing remain independent billing variables; this is a bounded
+compute envelope, not a zero-cost guarantee. Enable Free Tier usage alerts and
+a zero-spend budget before public traffic.
 
 ## Docker runtime contract
 
