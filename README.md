@@ -83,10 +83,14 @@ immutable `sha-<commit>` image to ECR, and deploys the service stack. Read the
 
 The service has cost guardrails: one conversion worker, five jobs per IP per
 day, a global 100-job monthly admission limit, one 25 MB file per job, and a
-15-minute Lambda timeout. At 3008 MB, 100 full 15-minute worker executions
-consume about 264,000 GB-seconds, below Lambda's 400,000 GB-second monthly
-free allocation. S3, ECR, CloudWatch, transfer, account eligibility, and
-provider pricing remain independent billing variables; this is a bounded
+10-minute Lambda timeout. Every Function URL request is also limited to 60 per
+IP per minute, 3,000 per day, and 20,000 per month. Quota increments and job
+creation use one DynamoDB transaction, so a rejected request cannot consume a
+global conversion slot. Asynchronous worker retries are disabled. At 3008 MB,
+100 full 10-minute worker executions consume about 176,000 GB-seconds, below
+Lambda's 400,000 GB-second monthly free allocation. S3, ECR, CloudWatch,
+transfer, account eligibility, and provider pricing remain independent billing
+variables; this is a bounded
 compute envelope, not a zero-cost guarantee. Enable Free Tier usage alerts and
 a zero-spend budget before public traffic.
 

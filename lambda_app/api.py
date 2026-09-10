@@ -9,10 +9,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import boto3
+from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
 from lambda_app.common import (
     ALLOWED_FORMATS,
+    MAX_API_REQUESTS_PER_DAY,
+    MAX_API_REQUESTS_PER_IP_PER_MINUTE,
+    MAX_API_REQUESTS_PER_MONTH,
     MAX_FILE_BYTES,
     MAX_JOBS_PER_IP_PER_DAY,
     MAX_JOBS_PER_MONTH,
@@ -30,26 +34,60 @@ s3 = boto3.client("s3")
 lambda_client = boto3.client("lambda")
 dynamodb = boto3.resource("dynamodb")
 TABLE = dynamodb.Table(os.environ["JOBS_TABLE"])
+DYNAMODB_CLIENT = boto3.client("dynamodb")
 BUCKET = os.environ["ARTIFACTS_BUCKET"]
 WORKER_FUNCTION = os.environ["WORKER_FUNCTION"]
 SITE_ORIGIN = os.environ["SITE_ORIGIN"]
+SERIALIZER = TypeSerializer()
 
 
 def _request_ip(event: dict[str, Any]) -> str:
     return str(event.get("requestContext", {}).get("http", {}).get("sourceIp", "unknown"))
 
 
-def _consume_quota(key: str, limit: int, expiry: int) -> bool:
+def _quota_update(key: str, limit: int, expiry: int) -> dict[str, Any]:
+    """Create one bounded DynamoDB counter mutation for a transaction."""
+    return {
+        "Update": {
+            "TableName": TABLE.name,
+            "Key": {"jobId": {"S": key}},
+            "UpdateExpression": "SET expiresAt = :expiry ADD requestCount :one",
+            "ConditionExpression": "attribute_not_exists(requestCount) OR requestCount < :limit",
+            "ExpressionAttributeValues": {
+                ":one": {"N": "1"},
+                ":limit": {"N": str(limit)},
+                ":expiry": {"N": str(expiry)},
+            },
+        }
+    }
+
+
+def _is_conditional_failure(error: ClientError) -> bool:
+    return error.response["Error"]["Code"] in {"ConditionalCheckFailedException", "TransactionCanceledException"}
+
+
+def _consume_api_request_quota(event: dict[str, Any]) -> bool:
+    """Bound all public Function URL traffic, including polling and preflight."""
+    now = int(time.time())
+    current = datetime.now(UTC)
+    minute_key = current.strftime("%Y-%m-%dT%H:%M")
+    day_key = current.strftime("%Y-%m-%d")
+    month_key = current.strftime("%Y-%m")
     try:
-        TABLE.update_item(
-            Key={"jobId": key},
-            UpdateExpression="SET expiresAt = :expiry ADD requestCount :one",
-            ConditionExpression="attribute_not_exists(requestCount) OR requestCount < :limit",
-            ExpressionAttributeValues={":one": 1, ":limit": limit, ":expiry": expiry},
+        DYNAMODB_CLIENT.transact_write_items(
+            TransactItems=[
+                _quota_update(
+                    f"quota#api-ip-minute#{minute_key}#{_request_ip(event)}",
+                    MAX_API_REQUESTS_PER_IP_PER_MINUTE,
+                    now + 2 * 60,
+                ),
+                _quota_update(f"quota#api-day#{day_key}", MAX_API_REQUESTS_PER_DAY, now + 2 * RESULT_TTL_SECONDS),
+                _quota_update(f"quota#api-month#{month_key}", MAX_API_REQUESTS_PER_MONTH, now + 32 * RESULT_TTL_SECONDS),
+            ]
         )
         return True
     except ClientError as error:
-        if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
+        if _is_conditional_failure(error):
             return False
         raise
 
@@ -74,27 +112,41 @@ def _create_job(event: dict[str, Any]) -> dict[str, Any]:
     now = int(time.time())
     month_key = datetime.now(UTC).strftime("%Y-%m")
     day_key = datetime.now(UTC).strftime("%Y-%m-%d")
-    if not _consume_quota(f"quota#month#{month_key}", MAX_JOBS_PER_MONTH, now + RESULT_TTL_SECONDS * 32):
-        return response(429, {"detail": "The public monthly conversion quota is exhausted."}, SITE_ORIGIN)
-    if not _consume_quota(f"quota#ip#{day_key}#{_request_ip(event)}", MAX_JOBS_PER_IP_PER_DAY, now + RESULT_TTL_SECONDS * 2):
-        return response(429, {"detail": "The daily conversion quota for this network is exhausted."}, SITE_ORIGIN)
-
     job_id = str(uuid.uuid4())
     input_key = f"uploads/{job_id}/{filename}"
     expires_at = now + RESULT_TTL_SECONDS
     content_type = str(request.get("contentType") or "application/octet-stream")[:120]
-    TABLE.put_item(
-        Item={
-            "jobId": job_id,
-            "status": "created",
-            "filename": filename,
-            "inputKey": input_key,
-            "outputFormats": formats,
-            "createdAt": now,
-            "expiresAt": expires_at,
-        },
-        ConditionExpression="attribute_not_exists(jobId)",
-    )
+    job = {
+        "jobId": job_id,
+        "status": "created",
+        "filename": filename,
+        "inputKey": input_key,
+        "outputFormats": formats,
+        "createdAt": now,
+        "expiresAt": expires_at,
+    }
+    try:
+        DYNAMODB_CLIENT.transact_write_items(
+            TransactItems=[
+                _quota_update(f"quota#month#{month_key}", MAX_JOBS_PER_MONTH, now + RESULT_TTL_SECONDS * 32),
+                _quota_update(
+                    f"quota#ip#{day_key}#{_request_ip(event)}",
+                    MAX_JOBS_PER_IP_PER_DAY,
+                    now + RESULT_TTL_SECONDS * 2,
+                ),
+                {
+                    "Put": {
+                        "TableName": TABLE.name,
+                        "Item": {key: SERIALIZER.serialize(value) for key, value in job.items()},
+                        "ConditionExpression": "attribute_not_exists(jobId)",
+                    }
+                },
+            ]
+        )
+    except ClientError as error:
+        if _is_conditional_failure(error):
+            return response(429, {"detail": "The public conversion quota is exhausted. Try again later."}, SITE_ORIGIN)
+        raise
     upload = s3.generate_presigned_post(
         Bucket=BUCKET,
         Key=input_key,
@@ -185,6 +237,8 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     """Route a strict, browser-only Function URL API."""
     if not is_site_origin(event, SITE_ORIGIN):
         return response(403, {"detail": "This API is available through the converter site only."})
+    if not _consume_api_request_quota(event):
+        return response(429, {"detail": "The public request rate limit has been reached. Try again later."}, SITE_ORIGIN)
     method = event.get("requestContext", {}).get("http", {}).get("method", "")
     path = event.get("rawPath", "")
     if method == "OPTIONS":

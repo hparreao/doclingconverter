@@ -35,7 +35,7 @@ Resources:
           - lambda_app.worker.handler
       Role: !Ref WorkerRoleArn
       MemorySize: 3008
-      Timeout: 900
+      Timeout: 600
       EphemeralStorage:
         Size: 5120
       Environment:
@@ -49,6 +49,14 @@ Resources:
           Value: !Ref ProjectName
         - Key: DataRetention
           Value: temporary-24-hours
+
+  WorkerAsyncFailurePolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref WorkerFunction
+      Qualifier: '$LATEST'
+      MaximumEventAgeInSeconds: 360
+      MaximumRetryAttempts: 0
 
   ApiFunction:
     Type: AWS::Lambda::Function

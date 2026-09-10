@@ -163,6 +163,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
+                  - dynamodb:TransactWriteItems
                 Resource: !GetAtt JobsTable.Arn
               - Effect: Allow
                 Action: lambda:InvokeFunction
@@ -223,6 +224,9 @@ Resources:
                   - lambda:GetFunctionUrlConfig
                   - lambda:UpdateFunctionCode
                   - lambda:UpdateFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionEventInvokeConfig
                   - lambda:PutFunctionConcurrency
                   - lambda:DeleteFunctionConcurrency
                   - lambda:AddPermission
