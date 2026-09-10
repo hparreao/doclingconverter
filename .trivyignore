@@ -1,0 +1,6 @@
+# FastAPI 0.128.8 constrains Starlette to <1.0.0. The remaining fixes require
+# Starlette 1.x. This Lambda has no StaticFiles/FileResponse routes and does not
+# parse request forms; runtime tests enforce those preconditions. Reassess when
+# FastAPI supports a corrected Starlette major line.
+CVE-2026-48818 exp:2026-10-10
+CVE-2026-54283 exp:2026-10-10

@@ -75,9 +75,20 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("python:3.12-slim@sha256:", dockerfile)
         self.assertIn("docling-slim[format-iwork]==2.124.0", dockerfile)
         self.assertIn("requirements-api.txt", dockerfile)
-        self.assertIn("mangum==0.17.0", (ROOT / "requirements-api.txt").read_text(encoding="utf-8"))
+        requirements = (ROOT / "requirements-api.txt").read_text(encoding="utf-8")
+        self.assertIn("mangum==0.21.0", requirements)
+        self.assertIn("starlette==0.49.1", requirements)
         self.assertNotIn("docling-serve-cpu", dockerfile)
         self.assertNotIn("\n      ray", dockerfile.lower())
+
+    def test_documented_trivy_exceptions_match_unreachable_starlette_features(self):
+        api = API.read_text(encoding="utf-8")
+        ignore_file = (ROOT / ".trivyignore").read_text(encoding="utf-8")
+        self.assertNotIn("StaticFiles", api)
+        self.assertNotIn("FileResponse", api)
+        self.assertNotIn(".form(", api)
+        self.assertIn("CVE-2026-48818", ignore_file)
+        self.assertIn("CVE-2026-54283", ignore_file)
 
     def test_public_source_does_not_embed_aws_credentials(self):
         prohibited = ("AKIA", "ASIA", "aws_secret_access_key", "aws_access_key_id")

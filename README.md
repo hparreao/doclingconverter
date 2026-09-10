@@ -182,6 +182,13 @@ workflow also builds and scans the Linux Lambda image. Exercise conversion
 fixtures only against a built container and do not use personal or confidential
 documents as fixtures.
 
+The Trivy gate stays blocking for every fixable High or Critical finding. Its
+versioned ignore file contains two temporary Starlette CVEs whose fixed versions
+require the next incompatible major line: one concerns `StaticFiles` and the
+other form parsing. This Lambda does neither, and a guardrail test fails if
+those features are introduced. The exceptions expire on 2026-10-10 and must be
+reassessed before renewal.
+
 Build the Lambda image locally only when Docker is installed:
 
 ```bash
