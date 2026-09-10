@@ -197,6 +197,7 @@ Resources:
                   - ecr:BatchGetImage
                   - ecr:CompleteLayerUpload
                   - ecr:DescribeImages
+                  - ecr:GetDownloadUrlForLayer
                   - ecr:InitiateLayerUpload
                   - ecr:PutImage
                   - ecr:UploadLayerPart

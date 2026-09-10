@@ -58,9 +58,11 @@ class LambdaGuardrailTests(unittest.TestCase):
 
     def test_deployment_scans_the_published_lambda_image(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-aws-lambda.yml").read_text(encoding="utf-8")
+        foundation = FOUNDATION.read_text(encoding="utf-8")
         self.assertIn("aquasecurity/trivy-action@v0.36.0", workflow)
         self.assertIn("severity: HIGH,CRITICAL", workflow)
         self.assertIn("exit-code: '1'", workflow)
+        self.assertIn("ecr:GetDownloadUrlForLayer", foundation)
 
     def test_public_source_does_not_embed_aws_credentials(self):
         prohibited = ("AKIA", "ASIA", "aws_secret_access_key", "aws_access_key_id")
