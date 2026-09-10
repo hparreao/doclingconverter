@@ -70,6 +70,14 @@ def _is_conditional_failure(error: ClientError) -> bool:
     return error.response["Error"]["Code"] in {"ConditionalCheckFailedException", "TransactionCanceledException"}
 
 
+def _job_quota_detail(error: ClientError) -> str:
+    """Shape admission-limit failures without exposing counter implementation."""
+    reasons = error.response.get("CancellationReasons", [])
+    if len(reasons) > 1 and reasons[1].get("Code") == "ConditionalCheckFailed":
+        return "This network has reached its daily conversion quota. Try again tomorrow."
+    return "The public conversion quota is exhausted. Try again later."
+
+
 def _job_token(event: dict[str, Any]) -> str | None:
     headers = {str(key).lower(): str(value) for key, value in event.get("headers", {}).items()}
     token = headers.get("x-job-token", "")
@@ -175,7 +183,7 @@ def _create_job(event: dict[str, Any]) -> dict[str, Any]:
         )
     except ClientError as error:
         if _is_conditional_failure(error):
-            return response(429, {"detail": "The public conversion quota is exhausted. Try again later."}, SITE_ORIGIN)
+            return response(429, {"detail": _job_quota_detail(error)}, SITE_ORIGIN)
         raise
     upload = s3.generate_presigned_post(
         Bucket=BUCKET,

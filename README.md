@@ -90,7 +90,7 @@ signal; neither scanner replaces dependency upgrades or an application review.
 Read the `ApiFunctionUrl` stack output and configure the public website with
 that URL.
 
-The service has cost guardrails: one conversion worker, five jobs per IP per
+The service has cost guardrails: one conversion worker, ten jobs per IP per
 day, a global 100-job monthly admission limit, one 25 MB file per job, and a
 10-minute Lambda timeout. Each S3 upload policy expires after two minutes.
 Every Function URL request is also limited to 60 per IP per minute, 3,000 per
