@@ -3,15 +3,7 @@ import json
 import os
 import sys
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-
-class RequestStub:
-    def __init__(self, headers=None, source_ip="198.51.100.8"):
-        self.headers = headers or {"origin": "https://converter.example"}
-        self.client = SimpleNamespace(host=source_ip)
-        self.scope = {"aws.event": {"requestContext": {"http": {"sourceIp": source_ip}}}}
 
 
 class LambdaApiRuntimeTests(unittest.TestCase):
@@ -59,47 +51,38 @@ class LambdaApiRuntimeTests(unittest.TestCase):
         self.table.reset_mock()
         self.s3.generate_presigned_post.return_value = {"url": "https://upload.example", "fields": {}}
 
-    def test_mangum_adapts_a_function_url_create_request(self):
-        self.dynamodb_client.transact_write_items.return_value = {}
-        event = {
+    @staticmethod
+    def event(path, method="GET", body=None, origin="https://converter.example", token=None):
+        headers = {"origin": origin}
+        if token:
+            headers["x-job-token"] = token
+        return {
             "version": "2.0",
-            "routeKey": "$default",
-            "rawPath": "/jobs",
-            "rawQueryString": "",
-            "headers": {"origin": "https://converter.example", "content-type": "application/json"},
-            "requestContext": {"http": {"method": "POST", "path": "/jobs", "sourceIp": "198.51.100.9"}},
-            "body": json.dumps({"filename": "sample.pdf", "size": 42, "toFormats": ["md"]}),
+            "rawPath": path,
+            "headers": headers,
+            "requestContext": {"http": {"method": method, "sourceIp": "198.51.100.9"}},
+            "body": json.dumps(body) if body is not None else None,
             "isBase64Encoded": False,
         }
 
-        response = self.api.handler(event, None)
+    def test_function_url_create_request_records_pending_job_without_conversion_debit(self):
+        self.dynamodb_client.transact_write_items.return_value = {}
+        response = self.api.handler(
+            self.event("/jobs", "POST", {"filename": "sample.pdf", "size": 42, "toFormats": ["md"]}), None
+        )
 
         self.assertEqual(201, response["statusCode"])
         self.assertIn("jobToken", json.loads(response["body"]))
         self.table.put_item.assert_called_once()
         self.s3.generate_presigned_post.assert_called_once()
+        api_transactions = self.dynamodb_client.transact_write_items.call_args_list
+        self.assertEqual(1, len(api_transactions))
+        self.assertEqual(3, len(api_transactions[0].kwargs["TransactItems"]))
 
     def test_wrong_origin_is_rejected_before_any_aws_mutation(self):
-        event = {
-            "version": "2.0",
-            "routeKey": "$default",
-            "rawPath": "/capabilities",
-            "rawQueryString": "",
-            "headers": {"origin": "https://attacker.example"},
-            "requestContext": {"http": {"method": "GET", "path": "/capabilities", "sourceIp": "198.51.100.9"}},
-            "isBase64Encoded": False,
-        }
-
-        response = self.api.handler(event, None)
+        response = self.api.handler(self.event("/capabilities", origin="https://attacker.example"), None)
 
         self.assertEqual(403, response["statusCode"])
-        self.dynamodb_client.transact_write_items.assert_not_called()
-
-    def test_create_only_records_pending_job_and_does_not_debit_conversion_quota(self):
-        response = self.api._create_job({"filename": "sample.pdf", "size": 42, "toFormats": ["md"]})
-
-        self.assertEqual(201, response.status_code)
-        self.table.put_item.assert_called_once()
         self.dynamodb_client.transact_write_items.assert_not_called()
 
     def test_submit_debits_quota_and_acquires_lock_in_one_transaction(self):
@@ -129,5 +112,5 @@ class LambdaApiRuntimeTests(unittest.TestCase):
         job = {"accessTokenHash": self.api._job_token_hash(token)}
 
         self.assertIsNone(self.api._authorized_job({}, job))
-        self.assertIsNone(self.api._authorized_job({"x-job-token": "b" * 48}, job))
-        self.assertEqual(job, self.api._authorized_job({"x-job-token": token}, job))
+        self.assertIsNone(self.api._authorized_job({"headers": {"x-job-token": "b" * 48}}, job))
+        self.assertEqual(job, self.api._authorized_job({"headers": {"x-job-token": token}}, job))

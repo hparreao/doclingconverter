@@ -3,8 +3,6 @@
 # the full self-hosted server to minimize its dependency and attack surface.
 FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a
 
-COPY requirements-api.txt /tmp/requirements-api.txt
-
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
@@ -13,7 +11,7 @@ RUN apt-get update \
     && pip install --no-cache-dir \
       'docling-slim[format-iwork]==2.124.0' \
       awslambdaric \
-    && pip install --no-cache-dir -r /tmp/requirements-api.txt
+      boto3==1.35.36
 
 WORKDIR /var/task
 COPY lambda_app /var/task/lambda_app

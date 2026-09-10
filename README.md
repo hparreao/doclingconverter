@@ -18,10 +18,10 @@ Hugging Face accounts cannot create Docker Spaces. Docker is retained for
 local development and for operators who want the full Docling Serve REST
 contract.
 
-In AWS, FastAPI owns the Lambda control plane and Mangum adapts its ASGI app to
-the public Function URL. The browser receives a short-lived S3 upload policy
-and an opaque per-job capability, uploads directly to a private bucket,
-submits the job, then polls for a short-lived result URL. The capability
+In AWS, a small direct Lambda handler owns the control plane behind the public
+Function URL. The browser receives a short-lived S3 upload policy and an
+opaque per-job capability, uploads directly to a private bucket, submits the
+job, then polls for a short-lived result URL. The capability
 is returned only in the create response and its SHA-256 digest, never the
 value, is stored with the job. Submission and polling require it in the
 `x-job-token` header. It limits access to a job and its result URL; it does not
@@ -166,8 +166,8 @@ curl --fail http://localhost:7860/health
 ```
 
 Run the executable Lambda/API suite from an isolated Python environment. It
-uses mocked AWS clients and a real Function URL v2 event through Mangum; it
-does not access an AWS account or process a document.
+uses mocked AWS clients and a Function URL v2 event; it does not access an AWS
+account or process a document.
 
 ```bash
 python3 -m venv .venv
@@ -182,12 +182,6 @@ workflow also builds and scans the Linux Lambda image. Exercise conversion
 fixtures only against a built container and do not use personal or confidential
 documents as fixtures.
 
-The Trivy gate stays blocking for every fixable High or Critical finding. Its
-versioned ignore file contains two temporary Starlette CVEs whose fixed versions
-require the next incompatible major line: one concerns `StaticFiles` and the
-other form parsing. This Lambda does neither, and a guardrail test fails if
-those features are introduced. The exceptions expire on 2026-10-10 and must be
-reassessed before renewal.
 
 Build the Lambda image locally only when Docker is installed:
 

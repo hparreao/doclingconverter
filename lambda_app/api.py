@@ -1,9 +1,4 @@
-"""FastAPI control plane for the public Lambda Function URL.
-
-The document bytes bypass this API: a browser uploads them directly to the
-private S3 bucket through a short-lived POST policy. FastAPI owns the JSON
-control plane and Mangum adapts its ASGI application to Lambda.
-"""
+"""Control-plane Lambda: signed upload, bounded queue admission, and polling."""
 
 from __future__ import annotations
 
@@ -17,10 +12,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
-from mangum import Mangum
 
 from lambda_app.common import (
     ALLOWED_FORMATS,
@@ -34,7 +27,10 @@ from lambda_app.common import (
     UPLOAD_URL_TTL_SECONDS,
     WORKER_LOCK_KEY,
     WORKER_LOCK_TTL_SECONDS,
+    is_site_origin,
     job_id_from_path,
+    parse_json_body,
+    response,
     safe_filename,
 )
 
@@ -46,29 +42,12 @@ DYNAMODB_CLIENT = boto3.client("dynamodb")
 BUCKET = os.environ["ARTIFACTS_BUCKET"]
 WORKER_FUNCTION = os.environ["WORKER_FUNCTION"]
 SITE_ORIGIN = os.environ["SITE_ORIGIN"]
+SERIALIZER = TypeSerializer()
 UTC = timezone.utc
 
 
-def _json(status_code: int, payload: dict[str, Any]) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content=payload,
-        headers={"cache-control": "no-store", "x-content-type-options": "nosniff"},
-    )
-
-
-def _headers(request: Request) -> dict[str, str]:
-    return {key.lower(): value for key, value in request.headers.items()}
-
-
-def _request_ip(request: Request) -> str:
-    """Read Lambda's source IP when present, with a safe ASGI-test fallback."""
-    event = request.scope.get("aws.event")
-    if isinstance(event, dict):
-        source_ip = event.get("requestContext", {}).get("http", {}).get("sourceIp")
-        if source_ip:
-            return str(source_ip)
-    return request.client.host if request.client else "unknown"
+def _request_ip(event: dict[str, Any]) -> str:
+    return str(event.get("requestContext", {}).get("http", {}).get("sourceIp", "unknown"))
 
 
 def _quota_update(key: str, limit: int, expiry: int) -> dict[str, Any]:
@@ -100,7 +79,8 @@ def _job_quota_detail(error: ClientError) -> str:
     return "The public conversion quota is exhausted. Try again later."
 
 
-def _job_token(headers: dict[str, str]) -> str | None:
+def _job_token(event: dict[str, Any]) -> str | None:
+    headers = {str(key).lower(): str(value) for key, value in event.get("headers", {}).items()}
     token = headers.get("x-job-token", "")
     return token if 32 <= len(token) <= 200 else None
 
@@ -109,16 +89,16 @@ def _job_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _authorized_job(headers: dict[str, str], job: dict[str, Any] | None) -> dict[str, Any] | None:
+def _authorized_job(event: dict[str, Any], job: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return a job only when its opaque browser capability matches."""
-    token = _job_token(headers)
+    token = _job_token(event)
     expected = str(job.get("accessTokenHash", "")) if job else ""
     if not token or not expected or not hmac.compare_digest(_job_token_hash(token), expected):
         return None
     return job
 
 
-def _consume_api_request_quota(request: Request) -> bool:
+def _consume_api_request_quota(event: dict[str, Any]) -> bool:
     """Bound public API routes, including polling and job creation."""
     now = int(time.time())
     current = datetime.now(UTC)
@@ -129,7 +109,7 @@ def _consume_api_request_quota(request: Request) -> bool:
         DYNAMODB_CLIENT.transact_write_items(
             TransactItems=[
                 _quota_update(
-                    f"quota#api-ip-minute#{minute_key}#{_request_ip(request)}",
+                    f"quota#api-ip-minute#{minute_key}#{_request_ip(event)}",
                     MAX_API_REQUESTS_PER_IP_PER_MINUTE,
                     now + 2 * 60,
                 ),
@@ -144,25 +124,28 @@ def _consume_api_request_quota(request: Request) -> bool:
         raise
 
 
-def _create_job(payload: dict[str, Any]) -> JSONResponse:
-    filename = safe_filename(str(payload.get("filename", "")))
-    size = payload.get("size")
-    formats = payload.get("toFormats", ["md"])
+def _create_job(event: dict[str, Any]) -> dict[str, Any]:
+    request = parse_json_body(event)
+    if request is None:
+        return response(400, {"detail": "Malformed request."}, SITE_ORIGIN)
+    filename = safe_filename(str(request.get("filename", "")))
+    size = request.get("size")
+    formats = request.get("toFormats", ["md"])
     if not filename or not isinstance(size, int) or not 1 <= size <= MAX_FILE_BYTES:
-        return _json(422, {"detail": "The file is not allowed."})
+        return response(422, {"detail": "The file is not allowed."}, SITE_ORIGIN)
     if (
         not isinstance(formats, list)
         or not formats
         or not all(isinstance(value, str) for value in formats)
         or not set(formats).issubset(ALLOWED_FORMATS)
     ):
-        return _json(422, {"detail": "Choose one or more supported output formats."})
+        return response(422, {"detail": "Choose one or more supported output formats."}, SITE_ORIGIN)
 
     now = int(time.time())
     job_id = str(uuid.uuid4())
     input_key = f"uploads/{job_id}/{filename}"
     expires_at = now + RESULT_TTL_SECONDS
-    content_type = str(payload.get("contentType") or "application/octet-stream")[:120]
+    content_type = str(request.get("contentType") or "application/octet-stream")[:120]
     access_token = secrets.token_urlsafe(32)
     job = {
         "jobId": job_id,
@@ -184,7 +167,7 @@ def _create_job(payload: dict[str, Any]) -> JSONResponse:
             ExpiresIn=UPLOAD_URL_TTL_SECONDS,
         )
     except ClientError:
-        # A job whose upload policy could not be issued must not remain usable.
+        # Do not leave a usable job if issuing its upload policy failed.
         try:
             TABLE.delete_item(
                 Key={"jobId": job_id},
@@ -195,11 +178,11 @@ def _create_job(payload: dict[str, Any]) -> JSONResponse:
         except ClientError:
             pass
         raise
-    return _json(201, {"jobId": job_id, "jobToken": access_token, "upload": upload, "expiresAt": expires_at})
+    return response(201, {"jobId": job_id, "jobToken": access_token, "upload": upload, "expiresAt": expires_at}, SITE_ORIGIN)
 
 
 def _submit_transaction(job: dict[str, Any], source_ip: str) -> None:
-    """Serialize a job and debit conversion quota only once after an upload."""
+    """Reserve work and debit conversion quota only after S3 has the upload."""
     now = int(time.time())
     lock = {
         "Put": {
@@ -243,34 +226,30 @@ def _submit_transaction(job: dict[str, Any], source_ip: str) -> None:
     )
 
 
-def _submit_job(request: Request, job_id: str) -> JSONResponse:
-    job = _authorized_job(_headers(request), TABLE.get_item(Key={"jobId": job_id}).get("Item"))
+def _submit_job(event: dict[str, Any], job_id: str) -> dict[str, Any]:
+    job = _authorized_job(event, TABLE.get_item(Key={"jobId": job_id}).get("Item"))
     if not job:
-        return _json(404, {"detail": "Conversion not found."})
+        return response(404, {"detail": "Conversion not found."}, SITE_ORIGIN)
     if job.get("status") != "created":
-        return _json(409, {"detail": "This upload cannot be submitted."})
+        return response(409, {"detail": "This upload cannot be submitted."}, SITE_ORIGIN)
     try:
         s3.head_object(Bucket=BUCKET, Key=job["inputKey"])
     except ClientError:
-        return _json(422, {"detail": "Upload the selected file before submitting it."})
+        return response(422, {"detail": "Upload the selected file before submitting it."}, SITE_ORIGIN)
     try:
-        _submit_transaction(job, _request_ip(request))
+        _submit_transaction(job, _request_ip(event))
     except ClientError as error:
         if _is_conditional_failure(error):
             reasons = error.response.get("CancellationReasons", [])
             lock_index = 0 if job.get("quotaConsumedAt") else 2
             if len(reasons) > lock_index and reasons[lock_index].get("Code") == "ConditionalCheckFailed":
-                return _json(429, {"detail": "Another conversion is running. Retry this upload shortly."})
+                return response(429, {"detail": "Another conversion is running. Retry this upload shortly."}, SITE_ORIGIN)
             if job.get("quotaConsumedAt"):
-                return _json(409, {"detail": "This upload was already submitted."})
-            return _json(429, {"detail": _job_quota_detail(error)})
+                return response(409, {"detail": "This upload was already submitted."}, SITE_ORIGIN)
+            return response(429, {"detail": _job_quota_detail(error)}, SITE_ORIGIN)
         raise
     try:
-        lambda_client.invoke(
-            FunctionName=WORKER_FUNCTION,
-            InvocationType="Event",
-            Payload=f'{{"jobId":"{job_id}"}}'.encode(),
-        )
+        lambda_client.invoke(FunctionName=WORKER_FUNCTION, InvocationType="Event", Payload=f'{{"jobId":"{job_id}"}}'.encode())
     except ClientError:
         TABLE.update_item(
             Key={"jobId": job_id},
@@ -280,8 +259,8 @@ def _submit_job(request: Request, job_id: str) -> JSONResponse:
             ExpressionAttributeValues={":created": "created", ":submitted": "submitted"},
         )
         _release_worker_lock(job_id)
-        return _json(503, {"detail": "The converter is temporarily unavailable. Retry shortly."})
-    return _json(202, {"jobId": job_id, "status": "submitted"})
+        return response(503, {"detail": "The converter is temporarily unavailable. Retry shortly."}, SITE_ORIGIN)
+    return response(202, {"jobId": job_id, "status": "submitted"}, SITE_ORIGIN)
 
 
 def _release_worker_lock(job_id: str) -> None:
@@ -296,10 +275,10 @@ def _release_worker_lock(job_id: str) -> None:
             raise
 
 
-def _read_job(request: Request, job_id: str) -> JSONResponse:
-    job = _authorized_job(_headers(request), TABLE.get_item(Key={"jobId": job_id}).get("Item"))
+def _read_job(event: dict[str, Any], job_id: str) -> dict[str, Any]:
+    job = _authorized_job(event, TABLE.get_item(Key={"jobId": job_id}).get("Item"))
     if not job or int(job.get("expiresAt", 0)) <= int(time.time()):
-        return _json(404, {"detail": "Conversion not found."})
+        return response(404, {"detail": "Conversion not found."}, SITE_ORIGIN)
     payload: dict[str, Any] = {"jobId": job_id, "status": job.get("status", "unknown")}
     if job.get("status") == "completed" and job.get("resultKey"):
         payload["resultUrl"] = s3.generate_presigned_url(
@@ -307,54 +286,26 @@ def _read_job(request: Request, job_id: str) -> JSONResponse:
         )
     if job.get("status") == "failed":
         payload["detail"] = "Conversion failed. Check the supported formats and limits."
-    return _json(200, payload)
+    return response(200, payload, SITE_ORIGIN)
 
 
-def _valid_job_id(job_id: str) -> bool:
-    return job_id_from_path(f"/jobs/{job_id}") is not None
-
-
-def create_app() -> FastAPI:
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-
-    @app.middleware("http")
-    async def public_boundary(request: Request, call_next: Any) -> Response:
-        if request.method == "OPTIONS":
-            return Response(status_code=204, headers={"cache-control": "no-store"})
-        if _headers(request).get("origin") != SITE_ORIGIN:
-            return _json(403, {"detail": "This API is available through the converter site only."})
-        if not _consume_api_request_quota(request):
-            return _json(429, {"detail": "The public request rate limit has been reached. Try again later."})
-        return await call_next(request)
-
-    @app.post("/jobs")
-    async def create_job(request: Request) -> JSONResponse:
-        try:
-            payload = await request.json()
-        except ValueError:
-            return _json(400, {"detail": "Malformed request."})
-        if not isinstance(payload, dict):
-            return _json(400, {"detail": "Malformed request."})
-        return _create_job(payload)
-
-    @app.post("/jobs/{job_id}/submit")
-    async def submit_job(request: Request, job_id: str) -> JSONResponse:
-        if not _valid_job_id(job_id):
-            return _json(404, {"detail": "Route not found."})
-        return _submit_job(request, job_id)
-
-    @app.get("/jobs/{job_id}")
-    async def read_job(request: Request, job_id: str) -> JSONResponse:
-        if not _valid_job_id(job_id):
-            return _json(404, {"detail": "Route not found."})
-        return _read_job(request, job_id)
-
-    @app.get("/capabilities")
-    async def capabilities() -> JSONResponse:
-        return _json(200, {"maxFileBytes": MAX_FILE_BYTES, "maxFiles": 1, "outputFormats": sorted(ALLOWED_FORMATS)})
-
-    return app
-
-
-app = create_app()
-handler = Mangum(app, lifespan="off")
+def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
+    """Route a strict, browser-only Function URL API."""
+    if not is_site_origin(event, SITE_ORIGIN):
+        return response(403, {"detail": "This API is available through the converter site only."})
+    method = event.get("requestContext", {}).get("http", {}).get("method", "")
+    if method == "OPTIONS":
+        return {"statusCode": 204, "headers": {"cache-control": "no-store"}, "body": ""}
+    if not _consume_api_request_quota(event):
+        return response(429, {"detail": "The public request rate limit has been reached. Try again later."}, SITE_ORIGIN)
+    path = event.get("rawPath", "")
+    if method == "POST" and path == "/jobs":
+        return _create_job(event)
+    job_id = job_id_from_path(path)
+    if method == "POST" and job_id and path.endswith("/submit"):
+        return _submit_job(event, job_id)
+    if method == "GET" and job_id:
+        return _read_job(event, job_id)
+    if method == "GET" and path == "/capabilities":
+        return response(200, {"maxFileBytes": MAX_FILE_BYTES, "maxFiles": 1, "outputFormats": sorted(ALLOWED_FORMATS)}, SITE_ORIGIN)
+    return response(404, {"detail": "Route not found."}, SITE_ORIGIN)

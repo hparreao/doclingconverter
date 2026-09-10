@@ -77,7 +77,6 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           timeout: 10m
-          trivyignores: .trivyignore
 
       - name: Deploy Lambda functions
         shell: bash
