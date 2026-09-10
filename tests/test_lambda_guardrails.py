@@ -24,18 +24,23 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("transact_write_items", source)
         self.assertIn("_consume_api_request_quota", source)
         self.assertIn("UPLOAD_URL_TTL_SECONDS", source)
+        self.assertIn("accessTokenHash", source)
+        self.assertIn("hmac.compare_digest", source)
         common = (ROOT / "lambda_app" / "common.py").read_text(encoding="utf-8")
         self.assertNotIn('headers["access-control-allow-origin"]', common)
         template = FOUNDATION.read_text(encoding="utf-8")
         self.assertIn("BlockPublicPolicy: true", template)
         self.assertIn("ExpirationInDays: 1", template)
         self.assertIn("TimeToLiveSpecification", template)
+        service = SERVICE.read_text(encoding="utf-8")
+        self.assertIn("x-job-token", service)
 
     def test_worker_removes_input_and_never_returns_document_errors(self):
         source = WORKER.read_text(encoding="utf-8")
         self.assertIn("s3.delete_object", source)
         self.assertIn("input_path.unlink", source)
-        self.assertIn("except Exception:", source)
+        self.assertIn("except Exception as error:", source)
+        self.assertIn("conversion_failed job_id=%s stage=%s error_type=%s", source)
         self.assertNotIn("str(error)", source)
 
     def test_service_has_serialized_x86_worker(self):
@@ -50,6 +55,12 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("WORKER_LOCK_KEY", api)
         self.assertIn("ConditionExpression=\"attribute_not_exists(jobId) OR expiresAt < :now\"", api)
         self.assertIn("_release_worker_lock(job_id)", worker)
+
+    def test_deployment_scans_the_published_lambda_image(self):
+        workflow = (ROOT / ".github" / "workflows" / "deploy-aws-lambda.yml").read_text(encoding="utf-8")
+        self.assertIn("aquasecurity/trivy-action@v0.36.0", workflow)
+        self.assertIn("severity: HIGH,CRITICAL", workflow)
+        self.assertIn("exit-code: '1'", workflow)
 
     def test_public_source_does_not_embed_aws_credentials(self):
         prohibited = ("AKIA", "ASIA", "aws_secret_access_key", "aws_access_key_id")

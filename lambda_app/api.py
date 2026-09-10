@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
+import secrets
 import time
 import uuid
 from datetime import UTC, datetime
@@ -67,6 +70,30 @@ def _is_conditional_failure(error: ClientError) -> bool:
     return error.response["Error"]["Code"] in {"ConditionalCheckFailedException", "TransactionCanceledException"}
 
 
+def _job_token(event: dict[str, Any]) -> str | None:
+    headers = {str(key).lower(): str(value) for key, value in event.get("headers", {}).items()}
+    token = headers.get("x-job-token", "")
+    return token if 32 <= len(token) <= 200 else None
+
+
+def _job_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _authorized_job(event: dict[str, Any], job: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a job only when its opaque browser capability matches.
+
+    A Function URL is public by design. Origin is a browser boundary, not an
+    authorization mechanism, so polling and submission require a per-job
+    capability that is never stored in plaintext.
+    """
+    token = _job_token(event)
+    expected = str(job.get("accessTokenHash", "")) if job else ""
+    if not token or not expected or not hmac.compare_digest(_job_token_hash(token), expected):
+        return None
+    return job
+
+
 def _consume_api_request_quota(event: dict[str, Any]) -> bool:
     """Bound public API routes, including polling and job creation."""
     now = int(time.time())
@@ -117,6 +144,7 @@ def _create_job(event: dict[str, Any]) -> dict[str, Any]:
     input_key = f"uploads/{job_id}/{filename}"
     expires_at = now + RESULT_TTL_SECONDS
     content_type = str(request.get("contentType") or "application/octet-stream")[:120]
+    access_token = secrets.token_urlsafe(32)
     job = {
         "jobId": job_id,
         "status": "created",
@@ -125,6 +153,7 @@ def _create_job(event: dict[str, Any]) -> dict[str, Any]:
         "outputFormats": formats,
         "createdAt": now,
         "expiresAt": expires_at,
+        "accessTokenHash": _job_token_hash(access_token),
     }
     try:
         DYNAMODB_CLIENT.transact_write_items(
@@ -155,12 +184,14 @@ def _create_job(event: dict[str, Any]) -> dict[str, Any]:
         Conditions=[{"Content-Type": content_type}, ["content-length-range", 1, MAX_FILE_BYTES]],
         ExpiresIn=UPLOAD_URL_TTL_SECONDS,
     )
-    return response(201, {"jobId": job_id, "upload": upload, "expiresAt": expires_at}, SITE_ORIGIN)
+    return response(201, {"jobId": job_id, "jobToken": access_token, "upload": upload, "expiresAt": expires_at}, SITE_ORIGIN)
 
 
 def _submit_job(event: dict[str, Any], job_id: str) -> dict[str, Any]:
-    job = TABLE.get_item(Key={"jobId": job_id}).get("Item")
-    if not job or job.get("status") != "created":
+    job = _authorized_job(event, TABLE.get_item(Key={"jobId": job_id}).get("Item"))
+    if not job:
+        return response(404, {"detail": "Conversion not found."}, SITE_ORIGIN)
+    if job.get("status") != "created":
         return response(409, {"detail": "This upload cannot be submitted."}, SITE_ORIGIN)
     try:
         s3.head_object(Bucket=BUCKET, Key=job["inputKey"])
@@ -220,8 +251,8 @@ def _release_worker_lock(job_id: str) -> None:
             raise
 
 
-def _read_job(job_id: str) -> dict[str, Any]:
-    job = TABLE.get_item(Key={"jobId": job_id}).get("Item")
+def _read_job(event: dict[str, Any], job_id: str) -> dict[str, Any]:
+    job = _authorized_job(event, TABLE.get_item(Key={"jobId": job_id}).get("Item"))
     if not job or int(job.get("expiresAt", 0)) <= int(time.time()):
         return response(404, {"detail": "Conversion not found."}, SITE_ORIGIN)
     payload: dict[str, Any] = {"jobId": job_id, "status": job.get("status", "unknown")}
@@ -250,7 +281,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     if method == "POST" and job_id and path.endswith("/submit"):
         return _submit_job(event, job_id)
     if method == "GET" and job_id:
-        return _read_job(job_id)
+        return _read_job(event, job_id)
     if method == "GET" and path == "/capabilities":
         return response(200, {"maxFileBytes": MAX_FILE_BYTES, "maxFiles": 1, "outputFormats": sorted(ALLOWED_FORMATS)}, SITE_ORIGIN)
     return response(404, {"detail": "Route not found."}, SITE_ORIGIN)

@@ -95,6 +95,7 @@ Resources:
         AllowCredentials: false
         AllowHeaders:
           - content-type
+          - x-job-token
         AllowMethods:
           - GET
           - POST

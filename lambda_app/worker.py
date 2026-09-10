@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -17,6 +18,7 @@ s3 = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
 TABLE = dynamodb.Table(os.environ["JOBS_TABLE"])
 BUCKET = os.environ["ARTIFACTS_BUCKET"]
+LOGGER = logging.getLogger(__name__)
 
 
 def _begin(job_id: str) -> dict[str, Any] | None:
@@ -35,12 +37,12 @@ def _begin(job_id: str) -> dict[str, Any] | None:
     return TABLE.get_item(Key={"jobId": job_id}).get("Item")
 
 
-def _fail(job_id: str) -> None:
+def _fail(job_id: str, stage: str) -> None:
     TABLE.update_item(
         Key={"jobId": job_id},
-        UpdateExpression="SET #status = :failed, finishedAt = :finished",
+        UpdateExpression="SET #status = :failed, failureStage = :stage, finishedAt = :finished",
         ExpressionAttributeNames={"#status": "status"},
-        ExpressionAttributeValues={":failed": "failed", ":finished": int(time.time())},
+        ExpressionAttributeValues={":failed": "failed", ":stage": stage, ":finished": int(time.time())},
     )
 
 
@@ -86,13 +88,17 @@ def handler(event: dict[str, Any], _context: Any) -> None:
     if not job:
         return
     input_path = Path("/tmp") / f"{job_id}-{job['filename']}"
+    stage = "head_object"
     try:
         metadata = s3.head_object(Bucket=BUCKET, Key=job["inputKey"])
         if int(metadata.get("ContentLength", 0)) > MAX_FILE_BYTES:
             raise ValueError("file too large")
+        stage = "download"
         s3.download_file(BUCKET, job["inputKey"], str(input_path))
+        stage = "convert"
         formats = [value for value in job.get("outputFormats", []) if value in ALLOWED_FORMATS]
         payload = _convert(input_path, job["filename"], formats)
+        stage = "store_result"
         result_key = f"results/{job_id}/result.json"
         s3.put_object(
             Bucket=BUCKET,
@@ -107,8 +113,9 @@ def handler(event: dict[str, Any], _context: Any) -> None:
             ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={":completed": "completed", ":result": result_key, ":finished": int(time.time())},
         )
-    except Exception:
-        _fail(job_id)
+    except Exception as error:
+        LOGGER.warning("conversion_failed job_id=%s stage=%s error_type=%s", job_id, stage, type(error).__name__)
+        _fail(job_id, stage)
     finally:
         input_path.unlink(missing_ok=True)
         _release_worker_lock(job_id)

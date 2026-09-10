@@ -56,6 +56,17 @@ jobs:
           docker buildx build --platform linux/amd64 --provenance=false --sbom=false --push --file Dockerfile.lambda --tag "$IMAGE_URI" .
           echo "uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
+      - name: Block deployment on fixable high or critical image vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.uri }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          timeout: 10m
+
       - name: Deploy Lambda functions
         shell: bash
         env:

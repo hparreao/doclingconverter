@@ -18,9 +18,14 @@ Hugging Face accounts cannot create Docker Spaces. Docker is retained for
 local development and for operators who want the full Docling Serve REST
 contract.
 
-In AWS, the browser receives a short-lived S3 upload policy, uploads directly
-to a private bucket, submits the job, then polls a Lambda Function URL for a
-short-lived result URL. A conditional DynamoDB lock serializes conversions,
+In AWS, the browser receives a short-lived S3 upload policy and an opaque
+per-job capability, uploads directly to a private bucket, submits the job,
+then polls a Lambda Function URL for a short-lived result URL. The capability
+is returned only in the create response and its SHA-256 digest, never the
+value, is stored with the job. Submission and polling require it in the
+`x-job-token` header. It limits access to a job and its result URL; it does not
+turn the public Function URL into an authenticated user service. A conditional
+DynamoDB lock serializes conversions,
 so one x86_64 worker job is accepted at a time even in AWS accounts whose
 regional concurrency quota cannot support reserved concurrency.
 The worker uses 3008 MB, which is the compatible ceiling for restricted
@@ -78,8 +83,12 @@ AWS for URLs created after October 2025; direct Lambda invocation remains
 disallowed by the URL-only condition.
 
 Pushing `main` builds `Dockerfile.lambda` for `linux/amd64`, pushes an
-immutable `sha-<commit>` image to ECR, and deploys the service stack. Read the
-`ApiFunctionUrl` stack output and configure the public website with that URL.
+immutable `sha-<commit>` image to ECR, scans that exact published image with
+Trivy, and deploys the service stack only when no fixable High or Critical OS
+or library vulnerability is detected. ECR scan-on-push remains a second
+signal; neither scanner replaces dependency upgrades or an application review.
+Read the `ApiFunctionUrl` stack output and configure the public website with
+that URL.
 
 The service has cost guardrails: one conversion worker, five jobs per IP per
 day, a global 100-job monthly admission limit, one 25 MB file per job, and a
@@ -94,6 +103,14 @@ transfer, account eligibility, and provider pricing remain independent billing
 variables; this is a bounded
 compute envelope, not a zero-cost guarantee. Enable Free Tier usage alerts and
 a zero-spend budget before public traffic.
+
+The worker logs only a random job identifier, processing stage, and exception
+type on failure. It deliberately excludes filenames, object keys, document
+content, presigned URLs, and exception text. The operational records therefore
+remain useful for diagnosing a failed stage without becoming a document-data
+log. The opaque browser capability must stay in the page session; losing it
+makes a pending job inaccessible and a browser extension or local compromise
+can still read it. This is capability-based isolation, not user identity.
 
 ## Docker runtime contract
 
