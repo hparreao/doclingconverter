@@ -25,6 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run executable API tests
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements-test.txt
+          python -m coverage run --source=lambda_app -m unittest discover -s tests -v
+          python -m coverage report --fail-under=50
+
       - name: Validate deployment configuration
         shell: bash
         run: |

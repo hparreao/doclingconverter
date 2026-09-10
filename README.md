@@ -18,9 +18,10 @@ Hugging Face accounts cannot create Docker Spaces. Docker is retained for
 local development and for operators who want the full Docling Serve REST
 contract.
 
-In AWS, the browser receives a short-lived S3 upload policy and an opaque
-per-job capability, uploads directly to a private bucket, submits the job,
-then polls a Lambda Function URL for a short-lived result URL. The capability
+In AWS, FastAPI owns the Lambda control plane and Mangum adapts its ASGI app to
+the public Function URL. The browser receives a short-lived S3 upload policy
+and an opaque per-job capability, uploads directly to a private bucket,
+submits the job, then polls for a short-lived result URL. The capability
 is returned only in the create response and its SHA-256 digest, never the
 value, is stored with the job. Submission and polling require it in the
 `x-job-token` header. It limits access to a job and its result URL; it does not
@@ -94,8 +95,10 @@ The service has cost guardrails: one conversion worker, ten jobs per IP per
 day, a global 100-job monthly admission limit, one 25 MB file per job, and a
 10-minute Lambda timeout. Each S3 upload policy expires after two minutes.
 Every Function URL request is also limited to 60 per IP per minute, 3,000 per
-day, and 20,000 per month. Quota increments and job creation use one DynamoDB
-transaction, so a rejected request cannot consume a global conversion slot.
+day, and 20,000 per month. Creating an upload policy does not debit conversion
+quota. After S3 confirms the upload, the submit action atomically reserves the
+worker lock, transitions the job, and debits both job counters in DynamoDB; a
+worker-dispatch retry retains that admission and is not charged twice.
 Asynchronous worker retries are disabled. At 3008 MB, 100 full 10-minute worker
 executions consume about 176,000 GB-seconds, below
 Lambda's 400,000 GB-second monthly free allocation. S3, ECR, CloudWatch,
@@ -162,9 +165,22 @@ make run
 curl --fail http://localhost:7860/health
 ```
 
-Run the static guardrail checks with `make test`. Exercise the OpenAPI contract
-and conversion fixtures only against a built container; do not use personal or
-confidential documents as fixtures.
+Run the executable Lambda/API suite from an isolated Python environment. It
+uses mocked AWS clients and a real Function URL v2 event through Mangum; it
+does not access an AWS account or process a document.
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-test.txt
+make test PYTHON=.venv/bin/python
+make coverage PYTHON=.venv/bin/python
+```
+
+The CI gate enforces 50% line coverage for `lambda_app`. This is a regression
+floor rather than evidence of complete production behavior; the deploy
+workflow also builds and scans the Linux Lambda image. Exercise conversion
+fixtures only against a built container and do not use personal or confidential
+documents as fixtures.
 
 Build the Lambda image locally only when Docker is installed:
 
