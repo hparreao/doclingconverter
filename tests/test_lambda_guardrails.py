@@ -64,6 +64,13 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("exit-code: '1'", workflow)
         self.assertIn("ecr:GetDownloadUrlForLayer", foundation)
 
+    def test_lambda_image_excludes_the_unused_server_runtime(self):
+        dockerfile = (ROOT / "Dockerfile.lambda").read_text(encoding="utf-8")
+        self.assertIn("python:3.12-slim@sha256:", dockerfile)
+        self.assertIn("docling-slim[format-iwork]==2.124.0", dockerfile)
+        self.assertNotIn("docling-serve-cpu", dockerfile)
+        self.assertNotIn("\n      ray", dockerfile.lower())
+
     def test_public_source_does_not_embed_aws_credentials(self):
         prohibited = ("AKIA", "ASIA", "aws_secret_access_key", "aws_access_key_id")
         files = [

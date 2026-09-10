@@ -125,10 +125,18 @@ can still read it. This is capability-based isolation, not user identity.
 - The browser reads `/openapi.json` at startup and renders only output formats
   and conversion controls advertised by that deployed contract.
 
-The supported input set follows the fixed Docling matrix: PDF, current and
+The self-hosted Docker input set follows the fixed Docling matrix: PDF, current and
 legacy Office, OpenDocument, EPUB, Pages, HTML, Markdown, AsciiDoc, LaTeX, CSV,
 images, EML/MSG, WebVTT, BoxNote, Docling JSON, and supported XML variants.
 Audio, video, VLM, and EBCDIC are deliberately excluded from this deployment.
+
+The Lambda worker has a different, narrower image contract. It starts from a
+pinned Python 3.12 slim base and installs only `docling-slim`, LibreOffice, the
+Lambda Runtime Interface Client, and the AWS SDK. It does not include the
+`docling-serve` process, Ray, or its bundled Java libraries because the worker
+calls `DocumentConverter` directly. The release gate scans this image. The
+self-hosted server remains a distinct operator-managed runtime and should be
+scanned and patched by that operator before exposure to untrusted traffic.
 
 ## Docker privacy and limits
 
