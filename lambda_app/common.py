@@ -83,15 +83,17 @@ def parse_json_body(event: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def response(status_code: int, payload: dict[str, Any], origin: str | None = None) -> dict[str, Any]:
-    """Create a private JSON Function URL response with optional strict CORS."""
+    """Create a JSON Function URL response.
+
+    CORS is configured on AWS::Lambda::Url. Repeating it here produces two
+    Access-Control-Allow-Origin headers, which browsers reject as a failed
+    fetch. ``origin`` remains accepted so route responses keep one contract.
+    """
     headers = {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
     }
-    if origin:
-        headers["access-control-allow-origin"] = origin
-        headers["vary"] = "Origin"
     return {"statusCode": status_code, "headers": headers, "body": json.dumps(payload)}
 
 

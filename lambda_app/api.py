@@ -68,7 +68,7 @@ def _is_conditional_failure(error: ClientError) -> bool:
 
 
 def _consume_api_request_quota(event: dict[str, Any]) -> bool:
-    """Bound all public Function URL traffic, including polling and preflight."""
+    """Bound public API routes, including polling and job creation."""
     now = int(time.time())
     current = datetime.now(UTC)
     minute_key = current.strftime("%Y-%m-%dT%H:%M")
@@ -243,16 +243,7 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     method = event.get("requestContext", {}).get("http", {}).get("method", "")
     path = event.get("rawPath", "")
     if method == "OPTIONS":
-        return {
-            "statusCode": 204,
-            "headers": {
-                "access-control-allow-origin": SITE_ORIGIN,
-                "access-control-allow-methods": "GET,POST,OPTIONS",
-                "access-control-allow-headers": "content-type",
-                "vary": "Origin",
-            },
-            "body": "",
-        }
+        return {"statusCode": 204, "headers": {"cache-control": "no-store"}, "body": ""}
     if method == "POST" and path == "/jobs":
         return _create_job(event)
     job_id = job_id_from_path(path)

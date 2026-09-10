@@ -24,6 +24,8 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("transact_write_items", source)
         self.assertIn("_consume_api_request_quota", source)
         self.assertIn("UPLOAD_URL_TTL_SECONDS", source)
+        common = (ROOT / "lambda_app" / "common.py").read_text(encoding="utf-8")
+        self.assertNotIn('headers["access-control-allow-origin"]', common)
         template = FOUNDATION.read_text(encoding="utf-8")
         self.assertIn("BlockPublicPolicy: true", template)
         self.assertIn("ExpirationInDays: 1", template)
