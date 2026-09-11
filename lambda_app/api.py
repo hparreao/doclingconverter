@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from lambda_app.common import (
     ALLOWED_FORMATS,
+    ALLOWED_EXTENSIONS,
     MAX_API_REQUESTS_PER_DAY,
     MAX_API_REQUESTS_PER_IP_PER_MINUTE,
     MAX_API_REQUESTS_PER_MONTH,
@@ -307,5 +308,14 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     if method == "GET" and job_id:
         return _read_job(event, job_id)
     if method == "GET" and path == "/capabilities":
-        return response(200, {"maxFileBytes": MAX_FILE_BYTES, "maxFiles": 1, "outputFormats": sorted(ALLOWED_FORMATS)}, SITE_ORIGIN)
+        return response(
+            200,
+            {
+                "maxFileBytes": MAX_FILE_BYTES,
+                "maxFiles": 1,
+                "inputExtensions": sorted(ALLOWED_EXTENSIONS),
+                "outputFormats": sorted(ALLOWED_FORMATS),
+            },
+            SITE_ORIGIN,
+        )
     return response(404, {"detail": "Route not found."}, SITE_ORIGIN)

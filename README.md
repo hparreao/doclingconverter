@@ -134,12 +134,16 @@ images, EML/MSG, WebVTT, BoxNote, Docling JSON, and supported XML variants.
 Audio, video, VLM, and EBCDIC are deliberately excluded from this deployment.
 
 The Lambda worker has a different, narrower image contract. It starts from a
-pinned Python 3.12 slim base and installs only `docling-slim`, LibreOffice, the
-Lambda Runtime Interface Client, and the AWS SDK. It does not include the
-`docling-serve` process, Ray, or its bundled Java libraries because the worker
-calls `DocumentConverter` directly. The release gate scans this image. The
-self-hosted server remains a distinct operator-managed runtime and should be
-scanned and patched by that operator before exposure to untrusted traffic.
+pinned Python 3.12 slim base and installs the fixed `docling-slim[standard]`
+bundle, LibreOffice, the Lambda Runtime Interface Client, and the AWS SDK. It
+supports PDF, Office, EPUB, Pages, HTML, Markdown, AsciiDoc, LaTeX, CSV/TSV,
+images, EML/MSG, WebVTT, BoxNote, and Docling JSON; OpenDocument and XML
+variants remain Docker-only. A build-time `DocumentConverter` import is a
+release gate, preventing an incomplete Docling extra from reaching users. The
+worker does not include the `docling-serve` process, Ray, or bundled Java
+libraries because it calls `DocumentConverter` directly. The self-hosted
+server remains a distinct operator-managed runtime and should be scanned and
+patched by that operator before exposure to untrusted traffic.
 
 ## Docker privacy and limits
 

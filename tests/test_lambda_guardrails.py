@@ -28,6 +28,7 @@ class LambdaGuardrailTests(unittest.TestCase):
         self.assertIn("hmac.compare_digest", source)
         self.assertIn("daily conversion quota", source)
         self.assertIn("quotaConsumedAt", source)
+        self.assertIn("inputExtensions", source)
         common = (ROOT / "lambda_app" / "common.py").read_text(encoding="utf-8")
         self.assertIn("MAX_JOBS_PER_IP_PER_DAY = 10", common)
         self.assertNotIn('headers["access-control-allow-origin"]', common)
@@ -71,7 +72,8 @@ class LambdaGuardrailTests(unittest.TestCase):
     def test_lambda_image_excludes_the_unused_server_runtime(self):
         dockerfile = (ROOT / "Dockerfile.lambda").read_text(encoding="utf-8")
         self.assertIn("python:3.12-slim@sha256:", dockerfile)
-        self.assertIn("docling-slim[format-iwork]==2.124.0", dockerfile)
+        self.assertIn("docling-slim[standard]==2.124.0", dockerfile)
+        self.assertIn("from docling.document_converter import DocumentConverter; DocumentConverter()", dockerfile)
         self.assertIn("boto3==1.35.36", dockerfile)
         self.assertNotIn("docling-serve-cpu", dockerfile)
         self.assertNotIn("\n      ray", dockerfile.lower())

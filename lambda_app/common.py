@@ -22,11 +22,10 @@ WORKER_LOCK_TTL_SECONDS = 11 * 60
 ALLOWED_FORMATS = {"md", "json"}
 ALLOWED_EXTENSIONS = {
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp", ".epub", ".pages", ".html", ".htm",
+    ".epub", ".pages", ".html", ".htm",
     ".md", ".markdown", ".adoc", ".asciidoc", ".tex", ".latex",
     ".csv", ".tsv", ".png", ".jpg", ".jpeg", ".tif", ".tiff",
     ".bmp", ".webp", ".eml", ".msg", ".vtt", ".boxnote", ".json",
-    ".dclg", ".dclx", ".xml", ".xbrl", ".jats",
 }
 
 
